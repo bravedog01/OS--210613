@@ -160,7 +160,7 @@
 
 ##### 实现过程：
    - 首先，修改exception_handler函数以处理非法指令异常（CAUSE_ILLEGAL_INSTRUCTION）和断点异常（CAUSE_BREAKPOINT）并更新 tf->epc寄存器以跳过异常指令；
-   - 此外，在kern_init函数中插入了__asm__ ("unimp"); 以触发非法指令异常，__asm__ ("ebreak"); 以触发断点异常。
+   - 此外，在kern_init函数中插入了__asm__ ("unimp"); 以触发非法指令异常__asm__ ("ebreak"); 以触发断点异常。
    - 最后运行系统，可以观察到两种异常处理的结果输出。
 
 ##### 实验运行结果：
