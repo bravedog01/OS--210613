@@ -8,79 +8,80 @@
 
 #### **Exercise02**：完善中断处理（编程）
 
-在该练习中，我们需要编写中断处理程序，处理时钟中断并打印消息。我们的任务是让系统每收到 100 次时钟中断后输出 “100 ticks” 信息，并在输出 10 行后自动关机。
+   在该练习中，我们需要编写中断处理程序，处理时钟中断并打印消息。我们的任务是让系统每收到 100 次时钟中断后输出 “100 ticks” 信息，并在输出 10 行后自动关机。
 
-- ##### 修改后的代码：
+##### 修改后的代码：
 
    1. **中断处理函数：`interrupt_handler`**
-   ```
-   void interrupt_handler(struct trapframe *tf) {
-    intptr_t cause = (tf->cause << 1) >> 1;
-    switch (cause) {
-        case IRQ_U_SOFT:
-            cprintf("User software interrupt\n");
-            break;
-        case IRQ_S_SOFT:
-            cprintf("Supervisor software interrupt\n");
-            break;
-        case IRQ_H_SOFT:
-            cprintf("Hypervisor software interrupt\n");
-            break;
-        case IRQ_M_SOFT:
-            cprintf("Machine software interrupt\n");
-            break;
-        case IRQ_U_TIMER:
-            cprintf("User software interrupt\n");
-            break;
-        case IRQ_S_TIMER:
-            // "All bits besides SSIP and USIP in the sip register are
-            // read-only." -- privileged spec1.9.1, 4.1.4, p59
-            // In fact, Call sbi_set_timer will clear STIP, or you can clear it
-            // directly.
-            // cprintf("Supervisor timer interrupt\n");
-             /* LAB1 EXERCISE2   2212777 :  */
-            /*(1)设置下次时钟中断- clock_set_next_event()
-             *(2)计数器（ticks）加一
-             *(3)当计数器加到100的时候，我们会输出一个`100ticks`表示我们触发了100次时钟中断，同时打印次数（num）加一
-            * (4)判断打印次数，当打印次数为10时，调用<sbi.h>中的关机函数关机
-            */
-            clock_set_next_event(); // 设置下次时钟中断
-            ticks++; // 增加中断次数
-            // 检查是否达到100次时钟中断
-            if (ticks==100) {
-                print_ticks();
-                num++;
-                ticks= 0; // 重置中断计数
-                // 检查是否已经打印了10行
-                if (num >= 10) {
-                    // 调用关机函数
-                    cprintf("line counters = 10\n");
-                    sbi_shutdown();
-                }
-            }
-            break;
-            ......
-    }
-   }
-   ```
+      ```
+      void interrupt_handler(struct trapframe *tf) {
+       intptr_t cause = (tf->cause << 1) >> 1;
+       switch (cause) {
+           case IRQ_U_SOFT:
+               cprintf("User software interrupt\n");
+               break;
+           case IRQ_S_SOFT:
+               cprintf("Supervisor software interrupt\n");
+               break;
+           case IRQ_H_SOFT:
+               cprintf("Hypervisor software interrupt\n");
+               break;
+           case IRQ_M_SOFT:
+               cprintf("Machine software interrupt\n");
+               break;
+           case IRQ_U_TIMER:
+               cprintf("User software interrupt\n");
+               break;
+           case IRQ_S_TIMER:
+               // "All bits besides SSIP and USIP in the sip register are
+               // read-only." -- privileged spec1.9.1, 4.1.4, p59
+               // In fact, Call sbi_set_timer will clear STIP, or you can clear it
+               // directly.
+               // cprintf("Supervisor timer interrupt\n");
+                /* LAB1 EXERCISE2   2212777 :  */
+               /*(1)设置下次时钟中断- clock_set_next_event()
+                *(2)计数器（ticks）加一
+                *(3)当计数器加到100的时候，我们会输出一个`100ticks`表示我们触发了100次时钟中断，同时打印次数（num）加一
+                *(4)判断打印次数，当打印次数为10时，调用<sbi.h>中的关机函数关机
+               */
+               clock_set_next_event(); // 设置下次时钟中断
+               ticks++; // 增加中断次数
+               // 检查是否达到100次时钟中断
+               if (ticks==100) {
+                   print_ticks();
+                   num++;
+                   ticks= 0; // 重置中断计数
+                   // 检查是否已经打印了10行
+                   if (num >= 10) {
+                      // 调用关机函数
+                       cprintf("line counters = 10\n");
+                       sbi_shutdown();
+                   }
+               }
+               break;
+               ......
+          }
+      }
+      ```
+      
    2. **`print_ticks` 函数**
-   ```
-   static void print_ticks() {
-    cprintf("%d ticks\n", TICK_NUM);
-   #ifdef DEBUG_GRADE
-    cprintf("End of Test.\n");
-    panic("EOT: kernel seems ok.");
-   #endif
-   }
-   ```
+      ```
+      static void print_ticks() {
+       cprintf("%d ticks\n", TICK_NUM);
+      #ifdef DEBUG_GRADE
+       cprintf("End of Test.\n");
+       panic("EOT: kernel seems ok.");
+      #endif
+      }
+      ```
 
-- ##### 实现过程：
-- 首先，修改了中断处理函数，在处理时钟中断时增加计数器，记录中断的次数。
-- 每当中断次数达到 100 次时，调用 `cprintf` 输出 “100 ticks” 信息，并且在输出 10 次后调用 `sbi_shutdown()` 函数关机。
-- 通过运行系统，可以观察到每秒钟输出一次 "100 ticks"，最终输出 10 次后系统自动关机。
+##### 实现过程：
+   - 首先，修改了中断处理函数，在处理时钟中断时增加计数器，记录中断的次数。
+   - 每当中断次数达到 100 次时，调用 `cprintf` 输出 “100 ticks” 信息，并且在输出 10 次后调用 `sbi_shutdown()` 函数关机。
+   - 通过运行系统，可以观察到每秒钟输出一次 "100 ticks"，最终输出 10 次后系统自动关机。
 
-- ##### 实验运行结果：
-通过执行 `make qemu` 命令，系统启动并输出了预期的结果——每秒钟输出一行 "100 ticks"，连续输出 10 行后，系统自动关机。
+##### 实验运行结果：
+   通过执行 `make qemu` 命令，系统启动并输出了预期的结果——每秒钟输出一行 "100 ticks"，连续输出 10 行后，系统自动关机。
 
 
 
@@ -101,74 +102,75 @@
 
 #### **Challenge03**：完善异常中断（编程）
 
-在该练习中，我们需要编写异常中断程序，完善在触发一条非法指令异常mret和ebreak，在 kern/trap/trap.c的异常处理函数中捕获，并输出异常类型和异常指令触发地址，即“Illegal instruction caught at 0x(地址)”，“ebreak caught at 0x（地址）”与“Exception type:Illegal instruction"，“Exception type: breakpoint”。
+   在该练习中，我们需要编写异常中断程序，完善在触发一条非法指令异常mret和ebreak，在 kern/trap/trap.c的异常处理函数中捕获，并输出异常类型和异常指令触发地址，即“Illegal instruction caught at 0x(地址)”，“ebreak caught at 0x（地址）”与“Exception type:Illegal instruction"，“Exception type: breakpoint”。
 
 
-- ##### 修改后的代码：
+##### 修改后的代码：
 
    1. **异常处理函数：`exception_handler`**
-   ```
-   void exception_handler(struct trapframe *tf) {
-    switch (tf->cause) {
-        case CAUSE_MISALIGNED_FETCH:
-            break;
-        case CAUSE_FAULT_FETCH:
-            break;
-        case CAUSE_ILLEGAL_INSTRUCTION:
-             // 非法指令异常处理
-             /* LAB1 CHALLENGE3  2210722 :  */
-            /*(1)输出指令异常类型（ Illegal instruction）
-             *(2)输出异常指令地址
-             *(3)更新 tf->epc寄存器
-             */
-           
-            //输出异常类型
-            cprintf("Exception type: Illegal instruction\n");
-            //输出异常指令触发地址
-            cprintf("Illegal instruction caught at 0x%lx\n", tf->epc);  
-            // tf->epc 增加4，因为RISC-V指令是32位，以跳过异常指令  
-            tf->epc += 4;
-            break;
-        case CAUSE_BREAKPOINT:
-            //断点异常处理
-            /* LAB1 CHALLLENGE3   2210722:  */
-            /*(1)输出指令异常类型（breakpoint）
-             *(2)输出异常指令地址
-             *(3)更新 tf->epc寄存器
-            */
+      ```
+      void exception_handler(struct trapframe *tf) {
+       switch (tf->cause) {
+           case CAUSE_MISALIGNED_FETCH:
+               break;
+           case CAUSE_FAULT_FETCH:
+               break;
+           case CAUSE_ILLEGAL_INSTRUCTION:
+                // 非法指令异常处理
+                /* LAB1 CHALLENGE3  2210722 :  */
+               /*(1)输出指令异常类型（ Illegal instruction）
+                *(2)输出异常指令地址
+                *(3)更新 tf->epc寄存器
+                */
+              
+               //输出异常类型
+               cprintf("Exception type: Illegal instruction\n");
+               //输出异常指令触发地址
+               cprintf("Illegal instruction caught at 0x%lx\n", tf->epc);  
+               // tf->epc 增加4，因为RISC-V指令是32位，以跳过异常指令  
+               tf->epc += 4;
+               break;
+           case CAUSE_BREAKPOINT:
+               //断点异常处理
+               /* LAB1 CHALLLENGE3   2210722:  */
+               /*(1)输出指令异常类型（breakpoint）
+                *(2)输出异常指令地址
+                *(3)更新 tf->epc寄存器
+               */
 
-            cprintf("Exception type: breakpoint\n");  
-            cprintf("ebreak caught at 0x%lx\n", tf->epc);
-            // tf->epc 增加4，因为ebreak指令是16位
-            tf->epc += 2;
-            break;
-            ......
-    }
-   }
-   ```
+               cprintf("Exception type: breakpoint\n");  
+               cprintf("ebreak caught at 0x%lx\n", tf->epc);
+               // tf->epc 增加4，因为ebreak指令是16位
+               tf->epc += 2;
+               break;
+               ......
+       }
+      }
+      ```
+      
    2. **`kern_init` 函数**
+      ```
+      ......
+       clock_init();  // init clock interrupt
+       __asm__ ("unimp");
+       __asm__ ("ebreak");
+       intr_enable();  // enable irq interrupt
+      ......
+      ```
+
+##### 实现过程：
+   - 首先，修改exception_handler函数以处理非法指令异常（CAUSE_ILLEGAL_INSTRUCTION）和断点异常（CAUSE_BREAKPOINT）并更新 tf->epc寄存器以跳过异常指令；
+   - 此外，在kern_init函数中插入了__asm__ ("unimp"); 以触发非法指令异常，__asm__ ("ebreak"); 以触发断点异常。
+   - 最后运行系统，可以观察到两种异常处理的结果输出。
+
+##### 实验运行结果：
+   - 编译：通过执行 `make` 命令使用Makefile编译修改后的代码。
+   - 运行：通过执行 `qemu-system-riscv64 --machine virt --nographic -kernel bin/ucore.img` 命令在QEMU模拟器中运行。
+   - 输出：分别输出非法指令异常和断点异常信息：
    ```
-   ......
-    clock_init();  // init clock interrupt
-    __asm__ ("unimp");
-    __asm__ ("ebreak");
-    intr_enable();  // enable irq interrupt
-   ......
+   Exception type: Illegal instruction
+   Illegal instruction caught at 0x8020004a
+
+   Exception type: breakpoint
+   ebreak caught at 0x8020004a
    ```
-
-- ##### 实现过程：
-- 首先，修改exception_handler函数以处理非法指令异常（CAUSE_ILLEGAL_INSTRUCTION）和断点异常（CAUSE_BREAKPOINT）并更新 tf->epc寄存器以跳过异常指令；
-- 此外，在kern_init函数中插入了__asm__ ("unimp"); 以触发非法指令异常，__asm__ ("ebreak"); 以触发断点异常。
-- 最后运行系统，可以观察到两种异常处理的结果输出。
-
-- ##### 实验运行结果：
-- 编译：通过执行 `make` 命令使用Makefile编译修改后的代码。
-- 运行：通过执行 `qemu-system-riscv64 --machine virt --nographic -kernel bin/ucore.img` 命令在QEMU模拟器中运行。
-- 输出：分别输出非法指令异常和断点异常信息：
-```
-Exception type: Illegal instruction
-Illegal instruction caught at 0x8020004a
-
-Exception type: breakpoint
-ebreak caught at 0x8020004a
-```
