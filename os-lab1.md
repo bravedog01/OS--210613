@@ -13,6 +13,7 @@
 #### 修改后的代码：
 
 1. **中断处理函数：`interrupt_handler`**
+   ```
    void interrupt_handler(struct trapframe *tf) {
     intptr_t cause = (tf->cause << 1) >> 1;
     switch (cause) {
@@ -61,16 +62,16 @@
             ......
     }
    }
-
-2. **`print_ticks` 函数**
+   ```
+3. **`print_ticks` 函数**
    ```
    static void print_ticks() {
     cprintf("%d ticks\n", TICK_NUM);
-#ifdef DEBUG_GRADE
+   #ifdef DEBUG_GRADE
     cprintf("End of Test.\n");
     panic("EOT: kernel seems ok.");
-#endif
-}
+   #endif
+   }
    ```
 
 #### 实现过程：
@@ -106,6 +107,7 @@
 #### 修改后的代码：
 
 1. **异常处理函数：`exception_handler`**
+   ```
    void exception_handler(struct trapframe *tf) {
     switch (tf->cause) {
         case CAUSE_MISALIGNED_FETCH:
@@ -143,14 +145,13 @@
             ......
     }
    }
-
-2. **`kern_init` 函数**
+   ```
+3. **`kern_init` 函数**
    ```
     clock_init();  // init clock interrupt
     __asm__ ("unimp");
     __asm__ ("ebreak");
     intr_enable();  // enable irq interrupt
-}
    ```
 
 #### 实现过程：
