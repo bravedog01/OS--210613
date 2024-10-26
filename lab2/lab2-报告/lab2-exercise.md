@@ -514,6 +514,288 @@ static void basic_check(void) {
   验证函数中的assert断言全部通过！
 
 
+## Challenge：任意大小的内存单元slub分配算法
+
+Buddy System算法把系统中的可用存储空间划分为存储块(Block)来进行管理（分配和回收）, 每个存储块的大小必须是2的n次幂(Pow(2, n)), 即1, 2, 4, 8, 16, 32, 64, 128...
+
+### 1、slub的设计思想
+
+#### （1）内存块管理
+SLUB算法通过维护`slub`和`kmem_cache`结构体来管理内存。每个内存块包含以下关键信息：
+`slub`包含以下成员：
+- **num**：该内存块当前可用于分配的单元数量。
+- **next**：指向链表中下一个内存块的指针。
+`kmem_cache`包含以下成员：
+- **order**：cache所包含的页面数。
+- **slubs**：指向实际分配的内存slub的指针。
+- **next**：指向下一个kmem_cache结构体的指针。
+- **objsize**：指向下一个kmem_cache结构体的指针对应slub的大小。
+
+
+  指针连接关系图示如下：
+  
+
+
+#### （2）内存分配
+
+当需要分配内存时，SLUB算法通过 `kmem_cache_alloc(size_t size) ` 函数完成。该功能的主要思想为：
+
+- **判断是否为小块**：通过`SULB_SIZE`判断是否为小于一页的小块，如果小于则向下查找；如果大于，则直接调用`buddy_system`分配算法。
+- **查找合适的内存块**：遍历空闲内存块链表，找到一个num值大于或等于请求单元数量的内存块。
+- **分割内存块**：如果找到的内存块比请求的内存大很多，SLUB会将其分割成两部分：一部分用于满足当前请求，另一部分作为新的空闲内存块放回链表中。
+- **更新链表**：将满足请求的内存块从链表中移除，并更新链表的头指针（slubs_free）。
+如果现有的空闲内存块无法满足请求，SLUB会尝试从操作系统中分配新的内存页，并将其初始化为一个或多个空闲内存块。
+
+  
+#### （3）内存释放
+  释放内存时，SLUB算法通过 `kmem_cache_free(void *slub) ` 函数实现。该功能逻辑如下：
+  
+ - **判断是否为小块**：依然先判断是否为小于一页的小块，如果小于则继续释放；如果大于，则直接调用`buddy_system`释放算法。
+ - **检查前向合并**：如果释放的内存块前面有一个空闲内存块，并且它们相邻，则将它们合并成一个更大的空闲内存块。
+ - **检查后向合并**：同样地，如果释放的内存块后面有一个空闲内存块，并且它们相邻，则也将它们合并。
+ - **更新链表**：将合并后的内存块（或未合并的释放内存块）放回空闲内存块链表中，并更新链表的头指针。
+
+
+### 2、slub的具体实现
+
+#### （1）内存管理
+
+```c++
+struct kmem_cache {
+    void *slubs;
+    struct kmem_cache *next;
+    // list_entry_t slabs_full; 
+    // list_entry_t slabs_partial;
+    // list_entry_t slabs_free; 
+    
+    uint16_t objsize; // 对象⼤⼩
+    uint16_t order; // 每个Slub保存的对象数⽬
+};
+typedef struct kmem_cache kmem_cache_t;
+
+struct slub {
+    
+    //int ref; // ⻚的引⽤次数（保留）
+    struct slub *next;//下一个slut块
+    uint16_t num; // 对象⼤⼩
+    //uint16_t inuse; // 已分配对象的数⽬
+    //int16_t free; // 下⼀个空闲对象偏移量，也就是静态链表的头部
+};
+typedef struct slub slub_t;
+
+
+```
+
+
+
+#### （2）内存分配
+
+```c++
+ static void *slub_alloc(size_t size)  
+{  
+    assert(size < PGSIZE);
+    slub_t *prev, *cur;  
+      
+    // 根据请求的内存大小计算需要分配的内存块数量
+    int num = SLUB_NUM(size);  
+  
+      
+    prev = slubs_free;  
+    // 遍历链表
+    for (cur = prev->next; ; prev = cur, cur = cur->next) {  
+        // 如果当前内存块的大小满足
+        if (cur->num >= num) {  
+            // 如果当前内存块的大小正好等于请求的大小，则将其从链表中移除
+            if (cur->num == num)  
+                prev->next = cur->next;  
+            else {  
+                // 如果当前内存块过大，则将其拆分为两部分：  一部分用于满足当前请求，另一部分放回空闲链表中
+                prev->next = cur + num;  
+                prev->next->num = cur->num - num;  
+                prev->next->next = cur->next;  
+                cur->num = num;  
+            }  
+            // 更新slubs_free指针，使其指向新的链表头
+            slubs_free = prev;  
+            return cur;  
+        }  
+        // 如果遍历到了链表的末尾，则从buddy系统分配新的页面
+        if (cur == slubs_free) {  
+            if (size == PGSIZE)  
+                return 0;  
+            // 从系统分配一个新的页面
+            cur = (slub_t *)alloc_pages(1);  
+            if (!cur)  
+                return 0;  
+                
+            // 加入到空闲链表
+            slub_free(cur, PGSIZE);  
+            // 将cur设置为指向新的空闲链表头
+            cur = slubs_free;  
+        }  
+    }  
+}
+
+void *kmem_cache_alloc(size_t size)  
+{  
+	slub_t *slub; 
+	kmem_cache_t *cachep; 
+  
+	// 如果请求的大小小于一页大小减去SLUB管理信息所需的空间  
+	if (size < PGSIZE - SLUB_SIZE) {  
+		// 分配一个包含SLUB管理信息的块  
+		slub = slub_alloc(size + SLUB_SIZE);  
+		// 如果分配成功，返回用户数据部分的指针
+		return slub ? (void *)(slub + 1) : 0;  
+	}  
+  
+	// 对于较大的请求，分配一个kmem_cache结构来管理内存  
+	cachep = slub_alloc(sizeof(kmem_cache_t));  
+	// 如果分配失败，返回NULL  
+	if (!cachep)  
+		return 0;  
+  
+	// 计算需要分配的页面数（以2的幂次方表示）  
+	cachep->order = ((size-1) >> PGSHIFT) + 1;  
+	// 分配所需页面数的连续物理页面  
+	cachep->slubs = (void *)alloc_pages(cachep->order);  
+  
+	// 如果页面分配成功  
+	if (cachep->slubs) {  
+		// 将新分配的kmem_cache结构加入全局缓存链表的头部  
+		cachep->next = caches;  
+		caches = cachep;  
+		// 返回分配的内存区域的起始地址  
+		return cachep->slubs;  
+	}  
+  
+	// 如果页面分配失败，释放之前分配的kmem_cache结构  
+	slub_free(cachep, sizeof(kmem_cache_t));  
+	// 返回NULL表示分配失败  
+	return 0;  
+}
+```
+
+
+#### (3)内存释放
+
+```c++
+static void slub_free(void *object, int size)  
+{  
+	slub_t *cur, *obj = (slub_t *)object; // 定义当前遍历指针cur和待释放对象指针obj  
+	if (!object) // 如果传入的对象指针为空，则直接返回  
+		return;  
+	if (size) // 如果传入了非零的大小，则设置obj的num字段为根据大小计算出的SLUB块数量  
+		obj->num = SLUB_NUM(size);  
+  
+	// 遍历空闲SLUB块链表，寻找合适的位置插入待释放的obj  
+	for (cur = slubs_free; !(obj > cur && obj < cur->next); cur = cur->next) {  
+		// 如果链表出现错误（cur >= cur->next），或者obj在cur和cur->next之外，则跳出循环  
+		if (cur >= cur->next && (obj > cur || obj < cur->next))  
+			break;  
+	}  
+  
+	// 如果待释放的obj与当前cur的下一个块相邻（且obj在cur之后）  
+	if (obj + obj->num == cur->next) {  
+		// 则合并这两个块，更新obj的num和next指针  
+		obj->num += cur->next->num;  
+		obj->next = cur->next->next;  
+	} else { // 否则，不合并，只设置obj的next指针为cur的next  
+		obj->next = cur->next;  
+	}  
+  
+	// 如果待释放的obj与当前cur块相邻（且obj在cur之前紧挨着）  
+	if (cur + cur->num == obj) {  
+		// 则合并这两个块，更新cur的num和next指针  
+		cur->num += obj->num;  
+		cur->next = obj->next;  
+	} else { // 否则，不合并，只将obj插入到cur之后  
+		cur->next = obj;  
+	}  
+  
+	slubs_free = cur; 
+  
+}  
+
+void kmem_cache_free(void *slub)  
+{  
+	kmem_cache_t *cachep, **last = &caches; 
+  
+	if (!slub) 
+		return;  
+  
+	// 检查传入的指针是否按页面对齐 
+	if (!((unsigned long)slub & (PGSIZE-1))) {  
+		// 遍历caches链表，查找包含待释放内存的cachep  
+		for (cachep = caches; cachep; last = &cachep->next, cachep = cachep->next) {  
+			if (cachep->slubs == slub) { // 如果找到匹配的cachep  
+				*last = cachep->next; // 从链表中移除cachep  
+				free_pages((struct Page *)slub, cachep->order); // 释放cachep管理的页面  
+				slub_free(cachep, sizeof(kmem_cache_t)); // 释放cachep结构本身占用的内存  
+				return;
+			}  
+		}  
+	}  
+  
+	// 如果传入的指针不是按页面对齐的，则调用slub_free
+	slub_free((slub_t *)slub - 1, 0); // 注意要减去1以找到正确的slub头  
+	return; 
+} 
+```
+
+
+
+### 3、slub的正确性证明
+
+#### （1）验证函数
+
+```c++
+void slub_check()
+{
+    cprintf("\nslub check begin\n");
+    
+    cprintf("slubs_free_len: %d\n", slubs_free_len());
+    
+    void* p1, *p2, *p3,*p4;
+    
+    
+    p1 = kmem_cache_alloc(4096);
+    cprintf("slubs_free_len: %d\n", slubs_free_len());
+    
+    p2 = kmem_cache_alloc(200);
+    cprintf("slubs_free_len: %d\n", slubs_free_len());
+    
+    p3 = kmem_cache_alloc(2);
+    cprintf("slubs_free_len: %d\n", slubs_free_len());
+    
+    p4 = kmem_cache_alloc(2);
+    cprintf("slubs_free_len: %d\n", slubs_free_len());
+    
+    kmem_cache_free(p2);
+    cprintf("slubs_free_len: %d\n", slubs_free_len());
+    
+    kmem_cache_free(p3);
+    cprintf("slubs_free_len: %d\n", slubs_free_len());
+    
+    kmem_cache_free(p4);
+    cprintf("slubs_free_len: %d\n", slubs_free_len());
+    
+    
+    cprintf("slub check end\n");
+}
+```
+
+#### （2）正确性
+
+输出结果如下图所示：
+
+开始时尚未分配，所以`slubs_free`长度为0。
+第一次分配的size大于`PGSIZE - SLUB_SIZE`，会通过`buddy_system`分配一页，同时创建了一个`kmem_cache_t`项向slub申请内存，所以申请后`slubs_free`的长度增加。
+后续三次分配，从原本的`kmem_cache_t`中取下一部分，所以长度不变。
+释放p2/p3时，由于其与后一项中间隔了一个p4，无法合并，所以`slubs_free`的长度变成了2。
+释放p4时会合并，最终变为1。
+
+
 
 ## Challenge3：硬件的可用物理内存范围的获取方法（思考题）
 如果 OS 无法提前知道当前硬件的可用物理内存范围，请问你有何办法让OS获取可用物理内存范围？
