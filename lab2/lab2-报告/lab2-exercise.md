@@ -516,15 +516,15 @@ static void basic_check(void) {
 
 ## Challenge：任意大小的内存单元slub分配算法
 
-Buddy System算法把系统中的可用存储空间划分为存储块(Block)来进行管理（分配和回收）, 每个存储块的大小必须是2的n次幂(Pow(2, n)), 即1, 2, 4, 8, 16, 32, 64, 128...
-
 ### 1、slub的设计思想
 
 #### （1）内存块管理
 SLUB算法通过维护`slub`和`kmem_cache`结构体来管理内存。每个内存块包含以下关键信息：
+
 `slub`包含以下成员：
 - **num**：该内存块当前可用于分配的单元数量。
 - **next**：指向链表中下一个内存块的指针。
+
 `kmem_cache`包含以下成员：
 - **order**：cache所包含的页面数。
 - **slubs**：指向实际分配的内存slub的指针。
@@ -754,31 +754,31 @@ void slub_check()
 {
     cprintf("\nslub check begin\n");
     
-    cprintf("slubs_free_len: %d\n", slubs_free_len());
+    cprintf("check begin————slubs_free_len: %d\n", slubs_free_len());
     
     void* p1, *p2, *p3,*p4;
     
     
     p1 = kmem_cache_alloc(4096);
-    cprintf("slubs_free_len: %d\n", slubs_free_len());
+    cprintf("p1 = kmem_cache_alloc(4096)————slubs_free_len: %d\n", slubs_free_len());
     
     p2 = kmem_cache_alloc(200);
-    cprintf("slubs_free_len: %d\n", slubs_free_len());
+    cprintf("p2 = kmem_cache_alloc(200)————slubs_free_len: %d\n", slubs_free_len());
     
     p3 = kmem_cache_alloc(2);
-    cprintf("slubs_free_len: %d\n", slubs_free_len());
+    cprintf("p3 = kmem_cache_alloc(2)————slubs_free_len: %d\n", slubs_free_len());
     
     p4 = kmem_cache_alloc(2);
-    cprintf("slubs_free_len: %d\n", slubs_free_len());
+    cprintf("p4 = kmem_cache_alloc(2)————slubs_free_len: %d\n", slubs_free_len());
     
     kmem_cache_free(p2);
-    cprintf("slubs_free_len: %d\n", slubs_free_len());
+    cprintf("kmem_cache_free(p2)————slubs_free_len: %d\n", slubs_free_len());
     
     kmem_cache_free(p3);
-    cprintf("slubs_free_len: %d\n", slubs_free_len());
+    cprintf("kmem_cache_free(p3)————slubs_free_len: %d\n", slubs_free_len());
     
     kmem_cache_free(p4);
-    cprintf("slubs_free_len: %d\n", slubs_free_len());
+    cprintf("kmem_cache_free(p4)————slubs_free_len: %d\n", slubs_free_len());
     
     
     cprintf("slub check end\n");
@@ -790,9 +790,13 @@ void slub_check()
 输出结果如下图所示：
 
 开始时尚未分配，所以`slubs_free`长度为0。
+
 第一次分配的size大于`PGSIZE - SLUB_SIZE`，会通过`buddy_system`分配一页，同时创建了一个`kmem_cache_t`项向slub申请内存，所以申请后`slubs_free`的长度增加。
+
 后续三次分配，从原本的`kmem_cache_t`中取下一部分，所以长度不变。
+
 释放p2/p3时，由于其与后一项中间隔了一个p4，无法合并，所以`slubs_free`的长度变成了2。
+
 释放p4时会合并，最终变为1。
 
 
