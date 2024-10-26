@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <trap.h>
+#include <slub_pmm.h>
 
 int kern_init(void) __attribute__((noreturn));
 void grade_backtrace(void);
@@ -27,6 +28,9 @@ int kern_init(void) {
     idt_init();  // init interrupt descriptor table
 
     pmm_init();  // init physical memory management
+
+    slub_init();
+    slub_check();
 
     idt_init();  // init interrupt descriptor table
 
