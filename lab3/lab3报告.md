@@ -173,3 +173,167 @@ static int _clock_swap_out_victim(struct mm_struct *mm, struct Page **ptr_page, 
     
     * Clock 算法通过一个指针 (`curr_ptr`) 在双向链表上循环遍历，检查每个页面的访问位。如果页面的访问位为 0，则将其替换，否则将访问位重置为 0，并继续遍历。Clock 算法是一种基于**访问位**的改进型页面替换算法。它是**FIFO**算法的改进，试图在页面替换过程中考虑页面的使用情况，从而降低页面替换的代价。Clock 算法常常被用于操作系统的虚拟内存管理中，尤其是在内存受限的环境下，它通过简化页面替换过程来提高性能。
 Clock 算法通常使用一个**循环链表**来管理所有的页面。每个页面都包含一个**访问位**（通常是 1 或 0）和一个指向下一个页面的指针。指针（或叫“时钟指针”）指向链表中的某个页面，类似于时钟的指针不断旋转。访问位（visited）表示页面是否被访问过。访问位为 1 表示该页面最近被访问过，0 表示该页面最近没有被访问。Clock算法通过一个指针（curr_ptr）在循环链表上进行“钟表旋转”。在每一次页面替换时，curr_ptr 会检查指向页面的访问位：如果访问位为 0：该页面是候选页面，可以被替换。将这个页面从链表中移除，并替换为新的页面。如果访问位为 1：该页面在最近的操作中已经被访问过，因此 不进行替换。此时会将页面的访问位重置为 0，并移动指针，继续检查下一个页面。
+
+
+
+
+## 练习5：阅读代码和实现手册，理解页表映射方式相关知识（思考题）
+如果我们采用”一个大页“ 的页表映射方式，相比分级页表，有什么好处、优势，有什么坏处、风险？
+
+**答：**
+
+一个大页表：
+
+* 优点：
+  * 维护简单，只用维护一个页表。
+  * 当虚拟空间小时，访问速度较块，便捷。只需访问一个页表
+* 缺点：
+  * TLB缓存频繁缺失。 TLB缓存有限，虚拟空间很大，会导致一级页表较大，导致TLB无法缓存最近使用的所有页表项，缓存页表项数目少，导致命中概率降低，查询转换速率降低。
+  * 虚拟空间较大时，会使得一级页表很大，页表项数增多，消耗的内存也多。如果页表项是以线性表的形式存储 ，还会导致访问时间增多。
+  * TLB失效代价大：单级页表完全依赖于页表的结构，一旦TLB失效，访问内存时需要读取庞大的页表，增加了内存访问延迟。
+  * 不适合稀疏地址空间。如果地址空间是稀疏的，单级页表需要为未使用的地址区域分配映射表项，导致大量无意义的内存消耗。
+
+多级页表：
+
+* 优点：
+  * 适用于大内存空间 。通过引入多级页表，可以将页表项分散到多个页表中存储，减少了内存的开销，内存呢利用率较高。
+  * 多级页表具有一定的灵活性。可以根据虚拟空间的大小设计页表的级数。
+  * 对于稀疏的虚拟地址空间，多级页表的存储方式更加节约内存。
+* 缺点：
+  * 多级页表实现的MMU较为复杂。需要维护多个页表。
+  * 随着页表级数增多，当出现TLBMiss的时候，访问内存的次数会增多，时间开销较大。这种方式一定程度上体现了时间换空间的思想。
+
+## 扩展练习 Challenge：实现不考虑实现开销和效率的LRU页替换算法（需要编程）
+需写出有详细的设计、分析和测试的实验报告。完成出色的可获得适当加分。
+#### 算法思路：
+
+* 最久未使用(LRU)算法：
+
+  利用局部性，通过过去的访问情况预测未来的访问情况，我们可以认为最近还被访问过的页面将来被访问的可能性大，而很久没访问过的页面将来不太可能被访问。于是我们比较当前内存里的页面最近一次被访问的时间，把上一次访问时间离现在最久的页面置换出去。
+
+* 实现思路：
+
+  在page的结构体中维护一个visited的变量，同时增加一个check函数更新每个页表的访问次数（即visited），check函数的主要功能是更新现有页表项的访问次数。维护周期为发生page fault的时候，即每次发生缺页时，都会更新每个页的访问情况，在这个发生缺页的周期里无论页表被访问多少次在visited变量上都只体现加1，这是由于我们获取页表访问情况只能通过标志位PTE_A。
+
+  每次check都会找到最少访问的page作为least_visited_page，作为即将被换出的页。如果现存的页表访问次数均相同则会选择页表链表中靠前的页表作为east_visited_page，“靠前”也意味着这个页表换入的时间较早。
+
+  受限于无法准确获取页表访问情况，只能采取这种近似于估算的方法来判断哪个页表最久未使用。
+
+#### 具体代码实现
+
+*  _lru_check函数
+
+  ```c++
+  static int _lru_check(struct mm_struct *mm)
+  {
+      list_entry_t *head = (list_entry_t *)mm->sm_priv;   //头指针
+      assert(head != NULL);
+      list_entry_t *entry = head;
+      struct Page *first_page = le2page(entry, pra_page_link);
+      least_visited_page=first_page;//将最久未访问的页设置成第一个页
+      while ((entry = list_prev(entry)) != head)
+      {
+          //获取page
+          struct Page *entry_page = le2page(entry, pra_page_link);
+          //获取页表项
+          pte_t *tmp_pte = get_pte(mm->pgdir, entry_page->pra_vaddr, 0);
+          cprintf("the ppn value of the pte of the vaddress is: 0x%x  \n", (*tmp_pte) >> 10);
+          if (*tmp_pte & PTE_A)  //如果近期被访问过，visited++
+          {
+              entry_page->visited ++;
+              *tmp_pte = *tmp_pte ^ PTE_A;//清除访问位
+          }
+  
+          if(entry_page->visited<least_visited_page->visited){//更新最久未访问的页
+              least_visited_page=entry_page;
+          }
+         
+          cprintf("the visited goes to %d\n", entry_page->visited);
+      }
+  }
+  ```
+
+该函数目的主要是更新页表项的访问情况，并找出最久未访问的那个页表项。
+
+* _lru_map_swappable函数
+
+  ```c++
+  static int
+  _lru_map_swappable(struct mm_struct *mm, uintptr_t addr, struct Page *page, int swap_in)
+  {
+      _lru_check(mm);
+       list_entry_t *head=(list_entry_t*) mm->sm_priv;
+      list_entry_t *entry=&(page->pra_page_link);
+   
+      assert(entry != NULL && head != NULL);
+      page->visited=0;
+      list_add(head, entry);
+      return 0;
+  }
+  
+  ```
+
+  该函数主要是将新页表链接到mm管理器的链表中，并初始化visited位。同时更新新页表插入前的访问情况
+
+* _lru_swap_out_victim函数
+
+  ```c++
+  static int
+  _lru_swap_out_victim(struct mm_struct *mm, struct Page ** ptr_page, int in_tick)
+  {
+      _lru_check(mm);//更新访问情况找到换出的页表。
+       list_entry_t *head=(list_entry_t*) mm->sm_priv;
+          assert(head != NULL);
+       assert(in_tick==0);
+       list_entry_t *least_page_link=&(least_visited_page->pra_page_link);
+      if (least_page_link!= head) {//
+          list_del(least_page_link);
+          *ptr_page =least_visited_page;
+      } else {
+          *ptr_page = NULL;
+      }
+      return 0;
+  }
+  ```
+
+  该函数主要是找到即将换出的页表，更新为ptr_page。
+
+#### 检测函数
+
+* 函数设计
+
+  ```c++
+  static int 
+  _lru_check_swap(void) {
+      /*在此之前，共发生0x1000、0x2000、0x3000、0x4000共四次缺页*/
+      *(unsigned char *)0x3000 = 0x0c;
+      assert(pgfault_num==4);
+      *(unsigned char *)0x1000 = 0x0a;
+      assert(pgfault_num==4);
+      *(unsigned char *)0x5000 = 0x0e;
+      assert(pgfault_num==5);
+       *(unsigned char *)0x4000 = 0x0d;
+      assert(pgfault_num==5);
+       *(unsigned char *)0x3000 = 0x0c;
+      assert(pgfault_num==5);
+      *(unsigned char *)0x2000 = 0x0b;
+      assert(pgfault_num==6);
+      return 0;
+  }
+  ```
+
+  在第八行发生缺页时，0x1000和0x3000会各自增加一次visited，这时候可供换出的是0x2000和0x4000，但因为0x2000在链表中的位置更靠前，访问的时间更早所以换出0x2000. 
+
+  第八行之后访问0x4000和0x3000均访问成功，第14行访问0x2000时检测0X2000的页是否被换出，如果之前成功换出所以会发生缺页，
+
+* 运行情况及正确性证明：
+
+  * 第8行缺页时的运行情况
+
+    ![image-20241116142300944](image-20241116142300944.png)0X80458对应的就是页表虚拟地址为0X2000的位置，在swap—out语句看到其被换出，swap_out语句下是换入0X5000之前页表项的情况。
+
+  * 检查0x2000是否成功换出
+
+    ![image-20241116150508267](image-20241116150508267.png)
+
+    在0X2000处发生缺页，说明之前的第8行的缺页成功换出。至此，lru置换算法检查结束，该算法实现能够正常换出最久未访问的页！说明算法实现正确！
