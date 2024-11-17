@@ -53,7 +53,7 @@
 9. **`swapfs_read(pte_t pte, struct Page *page)`**：从磁盘交换区读取页面数据到物理内存。用于实现页面换入的磁盘读取操作，确保换入的页面包含最新的数据。
 10. **`swapfs_write(uint_t addr, struct Page *page)`**：将页面数据写入到磁盘的交换区。用于页面换出操作，将换出的页面数据保存到磁盘，以便将来需要时能够正确换入。
 11. **`free_pages(struct Page *base, size_t n)`**：释放被换出的物理页面。将页面从系统的空闲页面列表中移除，并可能将其标记为可用或加入其他管理结构中。
-12.**`tlb_invalidate(pde_t *pgdir, uintptr_t la)`**：无效化被换出页面相关的TLB条目。确保后续对该虚拟地址的访问会重新从页表中查找对应的物理地址。
+12. **`tlb_invalidate(pde_t *pgdir, uintptr_t la)`**：无效化被换出页面相关的TLB条目。确保后续对该虚拟地址的访问会重新从页表中查找对应的物理地址。
 
 
 ## 练习2：深入理解不同分页模式的工作原理
