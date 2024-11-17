@@ -19,15 +19,8 @@
 
 
 2. **页面访问和置换决策**：
-   - 虽然在提供的代码中没有直接展示FIFO算法的实现，但通常会有一个函数（如`swap_out_victim`）来根据FIFO策略选择需要被置换的页面。
    - `swap_out_victim(struct mm_struct *mm, struct Page **page, int in_tick)`：
-     - 此函数（在FIFO算法下）会选择最早被加载到内存中的页面作为受害者页面。
-     - 注意：在提供的代码中，`sm`被初始化为`&swap_manager_clock`，这实际上是一个时钟（Clock）算法的实现，而不是FIFO。但在FIFO算法下，此函数的行为将是选择最早进入内存的页面。
-
-3. **换出（Swap-Out）过程**：
-   - `swap_out(struct mm_struct *mm, int n, int in_tick)`：
-     - 此函数负责将页面从物理内存中置换出，并保存到交换空间。
-     - 它首先调用`swap_out_victim`来选择受害者页面，然后更新页表项以指向交换空间中的位置，并将页面内容写入交换空间。
+     -在FIFO算法下会选择最早被加载到内存中的页面作为受害者页面。
    - 换出机制FIFO算法的具体实现：
      - `fifo_init_mm(struct mm_struct *mm)`
        - 初始化FIFO页面置换算法的链表头`pra_list_head`，并将`mm->sm_priv`指向该链表头。这一步允许从`mm_struct`结构访问FIFO置换算法所需的数据结构。
@@ -36,6 +29,10 @@
      - `fifo_swap_out_victim(struct mm_struct *mm, struct Page **ptr_page, int in_tick)`
        - 从`pra_list_head`链表中移除最早到达的页面，将该页面的地址赋值给`ptr_page`，表示该页面即将被换出。
 
+3. **换出（Swap-Out）过程**：
+   - `swap_out(struct mm_struct *mm, int n, int in_tick)`：
+     - 此函数负责将页面从物理内存中置换出，并保存到交换空间。
+     - 它首先调用`swap_out_victim`来选择受害者页面，然后更新页表项以指向交换空间中的位置，并将页面内容写入交换空间。
    - `swapfs_write(swap_entry_t entry, struct Page *page)`：
      - 将页面内容写入交换空间。
    - `free_page(struct Page *page)`：
