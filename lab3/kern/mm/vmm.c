@@ -397,6 +397,7 @@ do_pgfault(struct mm_struct *mm, uint_t error_code, uintptr_t addr) {
         */
         if (swap_init_ok) {
             struct Page *page = NULL;
+		
             // 你要编写的内容在这里，请基于上文说明以及下文的英文注释完成代码编写
             //(1）According to the mm AND addr, try
             //to load the content of right disk page
@@ -406,6 +407,15 @@ do_pgfault(struct mm_struct *mm, uint_t error_code, uintptr_t addr) {
             //map of phy addr <--->
             //logical addr
             //(3) make the page swappable.
+	
+	    ret=swap_in(mm,addr,&page);
+            if(ret!=0)
+            {
+                cprintf("swap failed\n");
+               goto failed;                 
+            }
+            page_insert(mm->pgdir,page,addr,perm);
+            swap_map_swappable(mm,addr,page,1);
             page->pra_vaddr = addr;
         } else {
             cprintf("no swap_init_ok but ptep is %x, failed\n", *ptep);
