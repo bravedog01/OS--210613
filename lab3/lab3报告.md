@@ -19,8 +19,6 @@
 
 
 2. **页面访问和置换决策**：
-   - `swap_out_victim(struct mm_struct *mm, struct Page **page, int in_tick)`：
-     -在FIFO算法下会选择最早被加载到内存中的页面作为受害者页面。
    - 换出机制FIFO算法的具体实现：
      - `fifo_init_mm(struct mm_struct *mm)`
        - 初始化FIFO页面置换算法的链表头`pra_list_head`，并将`mm->sm_priv`指向该链表头。这一步允许从`mm_struct`结构访问FIFO置换算法所需的数据结构。
