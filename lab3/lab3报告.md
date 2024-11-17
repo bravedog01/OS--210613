@@ -1,5 +1,103 @@
 # uCore 实验报告：lab3
 
+# lab3 实验报告
+
+## 练习1：理解基于FIFO的页面替换算法
+
+### 涉及的关键函数和宏
+
+1. **换入（Swap-In）过程**：
+   - `swap_in(struct mm_struct *mm, uintptr_t addr, struct Page **ptr_result)`：
+     - 此函数负责从交换空间（swap space）中读取页面并将其加载到物理内存中。
+     - 它首先分配一个新的页面，然后从磁盘的交换空间中读取数据到该页面，并更新页表项（PTE）以指向该页面。
+   - `alloc_page()`：
+     - 分配一个新的物理页面。
+   - `swapfs_read(swap_entry_t entry, struct Page *page)`：
+     - 从交换空间中读取页面内容。
+   - `get_pte(pde_t *pgdir, uintptr_t vaddr, int make)`：
+     - 获取指定虚拟地址的页表项（PTE）。
+
+
+2. **页面访问和置换决策**：
+   - 虽然在提供的代码中没有直接展示FIFO算法的实现，但通常会有一个函数（如`swap_out_victim`）来根据FIFO策略选择需要被置换的页面。
+   - `swap_out_victim(struct mm_struct *mm, struct Page **page, int in_tick)`：
+     - 此函数（在FIFO算法下）会选择最早被加载到内存中的页面作为受害者页面。
+     - 注意：在提供的代码中，`sm`被初始化为`&swap_manager_clock`，这实际上是一个时钟（Clock）算法的实现，而不是FIFO。但在FIFO算法下，此函数的行为将是选择最早进入内存的页面。
+
+3. **换出（Swap-Out）过程**：
+   - `swap_out(struct mm_struct *mm, int n, int in_tick)`：
+     - 此函数负责将页面从物理内存中置换出，并保存到交换空间。
+     - 它首先调用`swap_out_victim`来选择受害者页面，然后更新页表项以指向交换空间中的位置，并将页面内容写入交换空间。
+   - 换出机制FIFO算法的具体实现：
+     - `fifo_init_mm(struct mm_struct *mm)`
+       - 初始化FIFO页面置换算法的链表头`pra_list_head`，并将`mm->sm_priv`指向该链表头。这一步允许从`mm_struct`结构访问FIFO置换算法所需的数据结构。
+     - `fifo_map_swappable(struct mm_struct *mm, uintptr_t addr, struct Page *page, int swap_in)`
+       - 按照FIFO算法，将最近到达的页面链接到`pra_list_head`队列的末尾，用于追踪页面的到达顺序。这样保证了最先进入的页面最先被换出。
+     - `fifo_swap_out_victim(struct mm_struct *mm, struct Page **ptr_page, int in_tick)`
+       - 从`pra_list_head`链表中移除最早到达的页面，将该页面的地址赋值给`ptr_page`，表示该页面即将被换出。
+
+   - `swapfs_write(swap_entry_t entry, struct Page *page)`：
+     - 将页面内容写入交换空间。
+   - `free_page(struct Page *page)`：
+     - 释放物理页面。
+   - `tlb_invalidate(pde_t *pgdir, uintptr_t vaddr)`：
+     - 无效化TLB（转换后备缓冲器）中的相关条目，以确保后续访问会重新从页表中查找。
+
+
+
+以下是“从页面换入到换出”的流程中的关键函数，每个函数在页面换入或换出过程中的作用：
+
+1. **`swap_in(struct mm_struct *mm, uintptr_t addr, struct Page **ptr_result)`**：页面换入函数，目的是从磁盘交换区`swap space`中加载一个页面到物理内存中，并更新页表以反映这一变化。然后，通过调用`page_insert`将新页面映射到虚拟地址。
+2. **`swap_out(struct mm_struct *mm, int n, int in_tick)`**：页面换出函数，调用页面置换算法（如FIFO）选择一个需要换出的页面，将该页面写入磁盘的交换区`swap space`，并释放该物理页面的内存，为其他进程或数据腾出空间。
+3. **`_fifo_init_mm(struct mm_struct *mm)`**：初始化FIFO页面置换算法的链表头`pra_list_head`，并将`mm->sm_priv`指向该链表头。这一步允许从`mm_struct`结构访问FIFO置换算法所需的数据结构。
+4. **`_fifo_map_swappable(struct mm_struct *mm, uintptr_t addr, struct Page *page, int swap_in)`**：按照FIFO算法，将最近到达的页面链接到`pra_list_head`队列的末尾，用于追踪页面的到达顺序。这样保证了最先进入的页面最先被换出。
+5. **`_fifo_swap_out_victim(struct mm_struct *mm, struct Page **ptr_page, int in_tick)`**：从`pra_list_head`链表中移除最早到达的页面，将该页面的地址赋值给`ptr_page`，表示该页面即将被换出。
+6. **`alloc_page()`**：分配一个新的物理页面。`swap_in`函数中调用此函数以确保有足够的物理内存来加载即将换入的页面。
+7. **`page_remove_pte(pde_t *pgdir, uintptr_t la, pte_t *ptep)`**：从页目录中移除一个页表项。包括验证PTE的有效性、更新页面的引用计数、释放页面、更新TLB几个步骤。
+8. **`get_pte(struct mm_struct *mm, uintptr_t addr, int create)`**：获取对应于给定虚拟地址`la`的页表项。如果页表项不存在且 create 参数为 true，则会分配新的页面并初始化相应的页表和页目录项。
+9. **`swapfs_read(pte_t pte, struct Page *page)`**：从磁盘交换区读取页面数据到物理内存。用于实现页面换入的磁盘读取操作，确保换入的页面包含最新的数据。
+10. **`swapfs_write(uint_t addr, struct Page *page)`**：将页面数据写入到磁盘的交换区。用于页面换出操作，将换出的页面数据保存到磁盘，以便将来需要时能够正确换入。
+11. **`free_pages(struct Page *base, size_t n)`**：释放被换出的物理页面。将页面从系统的空闲页面列表中移除，并可能将其标记为可用或加入其他管理结构中。
+12.**`tlb_invalidate(pde_t *pgdir, uintptr_t la)`**：无效化被换出页面相关的TLB条目。确保后续对该虚拟地址的访问会重新从页表中查找对应的物理地址。
+
+
+## 练习2：深入理解不同分页模式的工作原理
+
+### 为什么两段代码如此相像？
+
+在`get_pte()`函数中，两段形式类似的代码分别处理了一级页表项（PDE, Page Directory Entry）和二级页表项（PTE, Page Table Entry）的查找与分配。这种相似性源于页表结构的递归性质，以及SV32、SV39、SV48这三种RISC-V页表格式的共通逻辑。
+
+#### SV32、SV39、SV48的异同
+
+1. **SV32**: 32 位虚拟地址空间，使用两级分页（页目录和页表）。
+2. **SV39**: 39 位虚拟地址空间，使用三级分页（页目录、页上级目录和页表，PGD、PMD和PTE）。
+3. **SV48**: 48 位虚拟地址空间，使用四级分页，每一级页表都包含512个页表项（PTEs），每个PTE占用8个字节。
+
+ `get_pte()` 函数处理的是页目录项和页表项，并且观察到这两段代码非常相像，这是因为每一级页表项的查找和分配行为是非常相似的。这就意味着这段代码是可移植的。当实现 SV39 和 SV48 的三级和四级分页时，由于它们与 SV32 相似，可以重复使用相同的代码逻辑。
+
+### 这种写法好吗？
+
+将页表项的查找和页表项的分配合并在一个函数里，有其优点和缺点：
+
+**优点**：
+- **简洁性**：代码更加紧凑，易于阅读和维护。
+- **效率**：减少了函数调用的开销（虽然这在分页操作中不是主要的性能瓶颈）。
+- **一致性**：查找和分配逻辑在同一个函数中维护，减少了出错的可能性。
+
+**缺点**：
+- **复杂性**：当分页结构变得更加复杂（如 SV39 或 SV48 的三级分页）时，这个函数可能会变得难以理解和维护。
+- **可重用性**：如果其他函数需要单独执行查找或分配操作，那么这种合并的写法存在不适用的情况。
+- **测试**：测试单个功能（查找或分配）变得更加困难，因为需要模拟整个函数的上下文。
+
+### 是否有必要把两个功能拆开？
+
+这取决于具体的设计需求和目标。
+
+对于本实验中类似 SV32 这样相对简单的分页结构，并且为了保持代码的简洁性，没有必要把两个功能拆开。因为这种情况下代码量相对较小，其简洁性有利于代码的理解与维护。
+
+随着系统复杂性的增加，或者其他组件需要重用查找或分配逻辑，那么将这两个功能拆分更加合适。因为拆分后的函数可以更加专注于单个任务，并且其他函数可以根据需要调用这些更具体的函数，而不是依赖于一个包含多个功能的复杂函数，使得代码更加模块化和易于测试。
+
+
 ## 练习 3：给未被映射的地址映射上物理页
 
 ### 任务概述
