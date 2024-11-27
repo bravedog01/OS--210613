@@ -1,6 +1,8 @@
 # 🐻 **NKU--OSlab2024--210613** 🎉  
 ✨ *Dive into the world of operating systems with uCore, and let learning be fun!* ✨  
-🎀MEMBER:2212777 王舒瑀 2212138 唐苇苇 2210722 安楠🎀
+
+🎀member:2212777 王舒瑀 2212138 唐苇苇 2210722 安楠🎀
+
 ---
 
 ## 🌟 **Introduction**
