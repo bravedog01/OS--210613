@@ -1,5 +1,6 @@
 # 🐻 **NKU--OSlab2024--210613** 🎉  
 ✨ *Dive into the world of operating systems with uCore, and let learning be fun!* ✨  
+本仓库是NKU-2024-操作系统实验仓库
 
 🎀member:2212777 王舒瑀 2212138 唐苇苇 2210722 安楠🎀
 
