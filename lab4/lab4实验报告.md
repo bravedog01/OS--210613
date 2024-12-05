@@ -206,6 +206,7 @@ get_pid(void) {
 }
 ```
 
+- `next_safe`是大于已分配进程id中大于`last_pid`中最小的。则说明`last_pid`到`next_safe`之间及`last_pid`都是安全可分配的PID。
 - 在函数`get_pid`中，如果静态成员`last_pid`小于`next_safe`，则当前分配的`last_pid`一定是安全的，即唯一的PID。
 - 但如果`last_pid`大于等于`next_safe`，或者`last_pid`的值超过`MAX_PID`，则当前的`last_pid`就不一定是唯一的PID，此时就需要遍历`proc_list`，重新对`last_pid`和`next_safe`进行设置，为下一次的`get_pid`调用打下基础。
 - 之所以在该函数中**维护一个合法的`PID`的区间**，是为了**优化时间效率**。如果简单的暴力搜索，则需要搜索大部分PID和所有的线程，这会使该算法的时间消耗很大，因此使用`PID`区间来优化算法。
