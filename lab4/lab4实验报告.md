@@ -212,3 +212,38 @@ get_pid(void) {
 - 之所以在该函数中**维护一个合法的`PID`的区间**，是为了**优化时间效率**。如果简单的暴力搜索，则需要搜索大部分PID和所有的线程，这会使该算法的时间消耗很大，因此使用`PID`区间来优化算法。
 
 使用该函数就可以找到一个独一无二的id辨识进程。
+这段代码提供了一种机制来保存和恢复中断状态，通常用于需要临时禁用中断以保护临界区代码的场景。下面是对代码的详细分析：
+
+
+##### 扩展练习 Challenge：
+说明语句local_intr_save(intr_flag);....local_intr_restore(intr_flag);是如何实现开关中断的？
+
+###### 解答：
+首先先找到对应代码
+```
+#define local_intr_save(x)      do {x = __intr_save(); } while (0)
+#define local_intr_restore(x)   __intr_restore(x);
+
+static inline bool __intr_save(void) {
+    if (read_csr(sstatus) & SSTATUS_SIE) {
+        intr_disable();
+        return 1;
+    }
+    return 0;
+}
+
+static inline void __intr_restore(bool flag) {
+    if (flag) {
+        intr_enable();
+    }
+}
+/* intr_enable - enable irq interrupt */
+void intr_enable(void) { set_csr(sstatus, SSTATUS_SIE); }
+
+/* intr_disable - disable irq interrupt */
+void intr_disable(void) { clear_csr(sstatus, SSTATUS_SIE); }
+```
+
+local_intr_save宏接受一个参数`x`，这个参数用于存储`__intr_save`函数的返回值。 `do { x = __intr_save(); } while (0)`：宏展开为一个`do-while`循环，这个循环实际上只执行一次。这样写是为了在调用的时候，这一段一定被单独解释为一条语句执行，`__intr_save`函数被调用，其返回值被赋值给变量`x`。数，如果当前 sstatus 寄存器的 SIE 位为 1（启用状态），则执行 intr_disable() 禁用中断，并返回 1 表示中断原本是开启的；否则，返回 0 表示中断原本是关闭的。intr_disable 通过清除SSTATUS_SIE位来禁用中断，而 intr_enable 通过设置SSTATUS_SIE位来启用中断。local_intr_restore(intr_flag)通过宏'_intr_restore '恢复之前保存的中断状态，再启用intr_enable的值来重新启用或禁用中断。
+
+这两对函数和宏提供了一种机制来保存和恢复中断状态。`__intr_save`函数检查是否需要禁用中断，并返回一个标志。`local_intr_save`宏使用这个函数来保存中断状态，并将返回值存储在一个变量中。`__intr_restore`函数根据传入的标志决定是否需要重新使能中断。`local_intr_restore`宏使用这个函数来恢复中断状态。这种机制确保在执行进程切换时时不会被中断打断。
