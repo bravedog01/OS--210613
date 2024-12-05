@@ -162,7 +162,7 @@ bad_fork_cleanup_proc:
 
 - 设置`trapframe`的`a0`寄存器值为0，`esp`寄存器值为传入的`esp`，以及`eflags`加上中断标志位。
 
-  > 设置eax寄存器的值为0，是因为子进程的fork函数返回的值为0。
+  > 设置a0寄存器的值为0，是因为子进程的fork函数返回的值为0。
 
 - 最后，设置子进程上下文的`ra`为`forkret`，`sp`为该`trapframe`的地址。
 
