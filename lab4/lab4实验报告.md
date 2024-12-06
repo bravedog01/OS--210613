@@ -62,6 +62,7 @@ memset(&proc->context, 0, sizeof(struct context)); //进程状态保存
     ```
 
     context中主要是关键寄存器的值。ra是返回地址，sp是栈顶指针。剩余12个寄存器保存的是进程状态，方便进程切换时恢复状态。
+    线程调度是在一个switchto函数中进行，这里只保存了上下文切换过程中被调用者的寄存器，因为调用者的寄存器在函数调用过程中会由编译器自动保存到调用过程的栈中。
 
   * `struct trapframe *tf`
 
