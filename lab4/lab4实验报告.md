@@ -214,8 +214,164 @@ get_pid(void) {
 使用该函数就可以找到一个独一无二的id辨识进程。
 这段代码提供了一种机制来保存和恢复中断状态，通常用于需要临时禁用中断以保护临界区代码的场景。下面是对代码的详细分析：
 
+## 练习3：编写proc_run函数（需要编码）
+    proc_run用于将指定的进程切换到CPU上运行。它的大致执行步骤包括：
 
-##### 扩展练习 Challenge：
+    - 检查要切换的进程是否与当前正在运行的进程相同，如果相同则不需要切换。
+    - 禁用中断。你可以使用/kern/sync/sync.h中定义好的宏local_intr_save(x)和local_intr_restore(x)来实现关、开中断。
+    - 切换当前进程为要运行的进程。
+    - 切换页表，以便使用新进程的地址空间。/libs/riscv.h中提供了lcr3(unsigned int cr3)函数，可实现修改CR3寄存器值的功能。
+    - 实现上下文切换。/kern/process中已经预先编写好了switch.S，其中定义了switch_to()函数。可实现两个进程的context切换。
+    - 允许中断。
+
+    请回答如下问题：
+
+    * 在本实验的执行过程中，创建且运行了几个内核线程？
+
+**解答：**
+
+##### 1、proc_run函数
+
+```c++
+void proc_run(struct proc_struct *proc) {
+    if (proc != current) {
+        bool intr_flag; 
+        struct proc_struct *prev = current;
+        local_intr_save(intr_flag); 
+        {
+            current = proc;
+            lcr3(current->cr3);
+            switch_to(&(prev->context), &(current->context));
+        }
+        local_intr_restore(intr_flag);
+    }
+}
+```
+
+`proc_run`函数中各个步骤的具体操作：
+
+- 将当前正在运行的进程用临时进程控制块对象`prev`保存；
+
+- 调用`local_intr_save(intr_flag)`保持当前中断状态到intr_flag并禁用中断；
+    ```c++
+    #define local_intr_save(x) \
+        do {                   \
+            x = __intr_save(); \
+        } while (0)
+    ```
+
+- 当前进程设为待调度的进程`current = proc`；
+
+- 更新页表，将当前的cr3寄存器改为需要运行进程的页目录表`lcr3(current->cr3)`。页目录表包含了虚拟地址到物理地址的映射关系,将当前进程的虚拟地址空间映射关系切换为新进程的映射关系，因此需要确保指令和数据的地址转换是基于新进程的页目录表进行的。
+
+- 进行上下文切换`switch_to(&(prev->context), &(current->context))`，保存原线程的寄存器，同时恢复待调度线程的寄存器；
+
+- 最后，调用`local_intr_restore(intr_flag)`恢复中断状态。
+    ```c++
+    #define local_intr_restore(x) __intr_restore(x);
+    ```
+
+##### 2、在本实验的执行过程中，创建且运行了几个内核线程？
+
+共创建且运行了两个内核线程`idleproc`和`initproc`。
+
+###### （1）创建内核线程
+
+```c++
+void proc_init(void) {
+    int i;
+
+    // 初始化进程列表
+    list_init(&proc_list);
+    // 遍历哈希列表的大小，对哈希列表中的每个元素进行初始化
+    for (i = 0; i < HASH_LIST_SIZE; i ++) {
+        list_init(hash_list + i);
+    }
+
+    // 分配一个进程结构给空闲进程（idle process），如果分配失败则触发panic
+    if ((idleproc = alloc_proc()) == NULL) {
+        panic("cannot alloc idleproc.\n");
+    }
+
+    // 检查idle process的上下文结构是否被正确初始化为零
+    int *context_mem = (int*) kmalloc(sizeof(struct context)); // 分配内存用于比较
+    memset(context_mem, 0, sizeof(struct context)); // 将分配的内存清零
+    int context_init_flag = memcmp(&(idleproc->context), context_mem, sizeof(struct context)); // 比较空闲进程的上下文和清零的内存
+
+    // 检查idle process的名称是否被正确初始化为零
+    int *proc_name_mem = (int*) kmalloc(PROC_NAME_LEN);
+    memset(proc_name_mem, 0, PROC_NAME_LEN);
+    int proc_name_flag = memcmp(&(idleproc->name), proc_name_mem, PROC_NAME_LEN);
+
+    if(idleproc->cr3 == boot_cr3 && idleproc->tf == NULL && !context_init_flag
+        && idleproc->state == PROC_UNINIT && idleproc->pid == -1 && idleproc->runs == 0
+        && idleproc->kstack == 0 && idleproc->need_resched == 0 && idleproc->parent == NULL
+        && idleproc->mm == NULL && idleproc->flags == 0 && !proc_name_flag
+    ){
+        cprintf("alloc_proc() correct!\n");
+    }
+    
+    // 设置idle process的基本信息，如PID、状态、内核栈、调度需求等
+    idleproc->pid = 0;
+    idleproc->state = PROC_RUNNABLE;
+    idleproc->kstack = (uintptr_t)bootstack;
+    idleproc->need_resched = 1;
+    set_proc_name(idleproc, "idle"); // 设置进程名称为"idle"
+    nr_process ++; // 增加进程计数
+
+    // 将当前进程设置为空闲进程
+    current = idleproc;
+
+    // 创建一个内核线程（init process）来运行init_main函数
+    int pid = kernel_thread(init_main, "Hello world!!", 0);
+    if (pid <= 0) {
+        panic("create init_main failed.\n"); // 如果创建失败，则触发panic
+    }
+
+    // 查找并设置init进程的指针
+    initproc = find_proc(pid);
+    set_proc_name(initproc, "init"); // 设置进程名称为"init"
+
+    assert(idleproc != NULL && idleproc->pid == 0);
+    assert(initproc != NULL && initproc->pid == 1);
+}
+```
+
+`idleproc`的创建步骤：
+
+1. **分配进程结构**：通过`alloc_proc()`函数为空闲进程分配一个进程控制块（PCB）。
+
+2. **初始化进程结构**：将分配的进程结构进行初始化，包括设置一些基本字段（如PID、状态、内核栈等）为默认值。此时，进程通常处于未初始化（`PROC_UNINIT`）状态。
+
+3. **检查初始化状态**：通过比较和验证，确保进程结构中的关键字段（如上下文和名称）已被正确初始化为零或空。
+
+4. **设置特定属性**：为空闲进程设置特定的属性，设置PID为0、状态为可运行（`PROC_RUNNABLE`）、内核栈指向正确的位置、设置调度需求等。
+
+5. **更新进程计数**：增加系统中进程的总数。
+
+6. **设置为当前进程**：将空闲进程设置为当前正在执行的进程。
+
+`initproc`的创建步骤：
+
+1. **创建内核线程**：通过`kernel_thread()`函数创建一个内核线程来运行`init_main()`函数。
+
+2. **获取线程PID**：从`kernel_thread()`函数的返回值中获取新创建的线程的PID（进程标识符）。
+
+3. **查找进程结构**：使用获取到的PID，通过`find_proc()`函数在进程列表中查找对应的进程结构。
+
+4. **设置进程属性**：为新找到的`init`进程设置特定的属性，设置PID为1、状态等。
+
+5. **验证进程结构**：通过断言（`assert`）确保`init`进程的结构已被正确初始化和分配。
+
+
+###### （2）运行内核线程
+
+1. **运行`idleproc`**：`proc_init`函数在初始化`idleproc`时，`current = idleproc`将其设置为当前进程开始运行。同时将`idleproc->need_resched`置为1，以便马上调用`schedule`函数找其他处于“就绪”态的进程执行。
+
+2. **运行`initproc`**：首先，`cpu_idle`判断当前内核线程`idleproc->need_resched`是否不为0，由于上文将其设置为1，则调用`schedule`函数在`proc_list`队列中查找下一个处于“就绪”态的线程（由于`proc_list`中只有两个内核线程，因此只能找到`initproc`），并通过`proc_run`和进一步的`switch_to`函数完成两个执行现场的切换。至此，就切换到了`initproc`内核进程运行。
+
+
+## 扩展练习 Challenge：
 说明语句local_intr_save(intr_flag);....local_intr_restore(intr_flag);是如何实现开关中断的？
 
 ###### 解答：
