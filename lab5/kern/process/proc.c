@@ -110,6 +110,23 @@ alloc_proc(void) {
      *       uint32_t wait_state;                        // waiting state
      *       struct proc_struct *cptr, *yptr, *optr;     // relations between processes
      */
+    // LAB4: 初始化基本字段
+        proc->state = PROC_UNINIT;                 // 初始状态为未初始化
+        proc->pid = -1;                            // PID 初始化为未分配
+        proc->runs = 0;                            // 运行次数初始化为 0
+        proc->kstack = 0;                          // 内核栈未分配
+        proc->need_resched = 0;                    // 不需要立即调度
+        proc->parent = NULL;                       // 没有父进程
+        proc->mm = NULL;                           // 未分配内存管理结构
+        memset(&(proc->context), 0, sizeof(struct context)); // 清空上下文
+        proc->tf = NULL;                           // 中断帧未分配
+        proc->cr3 = boot_cr3;                      // 页目录表设置为内核页目录表
+        proc->flags = 0;                           // 标志位初始化为 0
+        memset(proc->name, 0, PROC_NAME_LEN + 1);  // 进程名初始化为空字符串
+
+        // LAB5: 初始化新增字段
+        proc->wait_state = 0;                      // 等待状态初始化为 0
+        proc->cptr = proc->yptr = proc->optr = NULL; // 进程间关系指针初始化为 NULL
     }
     return proc;
 }
@@ -206,7 +223,20 @@ proc_run(struct proc_struct *proc) {
         *   lcr3():                   Modify the value of CR3 register
         *   switch_to():              Context switching between two processes
         */
-
+        bool intr_flag; 
+        struct proc_struct *prev = current;
+        local_intr_save(intr_flag); // 保持当前中断状态到intr_flag并禁用中断
+        {
+            // 当前进程设为待调度的进程
+            current = proc;
+            // 页目录表包含了虚拟地址到物理地址的映射关系,将当前进程的虚拟地址空间映射关系切换为新进程的映射关系.
+            // 确保指令和数据的地址转换是基于新进程的页目录表进行的
+            // 将当前的cr3寄存器改为需要运行进程的页目录表，其实就是更新页表
+            lcr3(current->cr3);
+            // 进行上下文切换，保存原线程的寄存器并恢复待调度线程的寄存器
+            switch_to(&(prev->context), &(current->context));
+        }
+        local_intr_restore(intr_flag); // 恢复中断状态
     }
 }
 
@@ -403,7 +433,48 @@ do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
     *    update step 1: set child proc's parent to current process, make sure current process's wait_state is 0
     *    update step 5: insert proc_struct into hash_list && proc_list, set the relation links of process
     */
- 
+     proc = alloc_proc();
+    if (proc == NULL)// 如果分配失败
+        goto fork_out; // 返回内存不足错误
+    
+    // LAB5 更新：设置子进程的父进程为当前进程，确保当前进程的 wait_state 为 0
+    proc->parent = current;
+    assert(current->wait_state == 0);
+
+    // 2.调用setup_kstack为子进程分配一个内核栈
+    if (setup_kstack(proc) != 0) 
+        goto bad_fork_cleanup_proc; // 如果分配失败，清理已分配的 proc_struct
+
+     // 3. 调用 copy_mm 函数，复制或共享父进程的内存管理信息
+    if (copy_mm(clone_flags, proc) != 0) 
+        goto bad_fork_cleanup_kstack; // 如果失败，清理已分配的内核栈  
+
+    // 4. 调用copy_thread()函数复制父进程的中断帧和上下文信息到子进程
+    copy_thread(proc, stack, tf);
+
+    // 5. 将子进程的proc_struct插入hash_list && proc_list
+    bool intr_flag;
+    local_intr_save(intr_flag); // 关闭中断，保证操作的原子性
+    {
+        proc->pid = get_pid(); // 为子进程分配唯一的 PID
+       /* hash_proc(proc); //将子进程插入全局哈希表建立映射
+        list_add(&proc_list, &(proc->list_link));// 将子进程插入全局链表*/
+        // LAB5 更新：调用 set_links 设置进程之间的关系链接
+       // set_links(proc);
+       // nr_process ++; // 增加全局进程计数*/
+     
+        /*LAB5 UPDATE2: 2212138*/
+        //list_add(&proc_list, &(proc->list_link));
+        set_links(proc); // 设置进程链接
+        hash_proc(proc); // 将进程插入到hash_list中
+    }
+    local_intr_restore(intr_flag);// 恢复中断
+
+    // 6.调用wakeup_proc使新子进程RUNNABLE
+    wakeup_proc(proc);
+
+    // 7.使用子进程pid设置获取值
+    ret = proc->pid;
 fork_out:
     return ret;
 
@@ -603,7 +674,18 @@ load_icode(unsigned char *binary, size_t size) {
      *          tf->status should be appropriate for user program (the value of sstatus)
      *          hint: check meaning of SPP, SPIE in SSTATUS, use them by SSTATUS_SPP, SSTATUS_SPIE(defined in risv.h)
      */
+     // 设置用户栈顶
 
+    tf->gpr.sp = USTACKTOP; // 用户栈顶地址
+    
+    // 设置用户程序的入口地址
+    tf->epc = elf->e_entry; // ELF 的入口地址
+    
+    // 设置 sstatus 的模式
+    tf->status = sstatus;
+    tf->status &= ~SSTATUS_SPP; // 将 SPP 位清零，表示从用户态返回
+    tf->status |= SSTATUS_SPIE; // 设置 SPIE 位，表示启用中断
+    // tf->status = (read_csr(sstatus) | SSTATUS_SPIE) & ~SSTATUS_SPP;
 
     ret = 0;
 out:
@@ -784,7 +866,7 @@ kernel_execve(const char *name, unsigned char *binary, size_t size) {
 
 #define KERNEL_EXECVE2(x, xstart, xsize)        __KERNEL_EXECVE2(x, xstart, xsize)
 
-// user_main - kernel thread used to exec a user program
+// user_main - kernel thread used to exec a user program 内核进程执行用户程序 or 内核进程变成用户进程？
 static int
 user_main(void *arg) {
 #ifdef TEST
@@ -806,6 +888,7 @@ init_main(void *arg) {
         panic("create user_main failed.\n");
     }
 
+    //等待子进程退出
     while (do_wait(0, NULL) == 0) {
         schedule();
     }

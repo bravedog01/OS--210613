@@ -7,7 +7,7 @@ int
 main(void) {
     int pid, code;
     cprintf("I am the parent. Forking the child...\n");
-    if ((pid = fork()) == 0) {
+    if ((pid = fork()) == 0) {//通过创建进程的时候的返回值判断该进程是子进程还是父进程 为0是子进程
         cprintf("I am the child.\n");
         yield();
         yield();

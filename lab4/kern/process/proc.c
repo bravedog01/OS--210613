@@ -103,7 +103,7 @@ alloc_proc(void) {
      *       char name[PROC_NAME_LEN + 1];               // Process name
      */
         proc->state = PROC_UNINIT;//初始状态为未初始化
-        proc->pid = -1;//pid为未赋值
+        proc->pid = -1;//pid未赋值
         proc->runs = 0;//运行次数初始为 0
         proc->kstack = 0;//除了idleproc其他线程的内核栈都要后续分配
         proc->need_resched =0; // 不需要立即调度切换线程

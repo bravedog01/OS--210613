@@ -178,6 +178,7 @@ void kernel_execve_ret(struct trapframe *tf,uintptr_t kstacktop);
 void exception_handler(struct trapframe *tf) {
     int ret;
     switch (tf->cause) {
+        
         case CAUSE_MISALIGNED_FETCH:
             cprintf("Instruction address misaligned\n");
             break;
@@ -217,6 +218,9 @@ void exception_handler(struct trapframe *tf) {
             break;
         case CAUSE_USER_ECALL:
             //cprintf("Environment call from U-mode\n");
+            //sepc寄存器是产生异常的指令的位置，在异常处理结束后，会回到sepc的位置继续执行
+            //对于ecall, 我们希望sepc寄存器要指向产生异常的指令(ecall)的下一条指令
+            //否则就会回到ecall执行再执行一次ecall, 无限循环
             tf->epc += 4;
             syscall();
             break;
